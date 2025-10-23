@@ -111,3 +111,70 @@
 (define-read-only (get-stats)
   (ok { total-works: (var-get work-counter) })
 )
+
+;; Update beneficiary percentage
+(define-public (update-beneficiary-percentage
+    (work-id uint)
+    (beneficiary principal)
+    (new-percentage uint)
+  )
+  (let
+    (
+      (work (unwrap! (map-get? works { work-id: work-id }) ERR-NOT-FOUND))
+      (split (unwrap! (map-get? royalty-splits { work-id: work-id, beneficiary: beneficiary }) ERR-NOT-FOUND))
+    )
+    (asserts! (is-eq tx-sender (get creator work)) ERR-NOT-AUTHORIZED)
+    (asserts! (<= new-percentage u100) ERR-INVALID-SPLIT)
+    (map-set royalty-splits
+      { work-id: work-id, beneficiary: beneficiary }
+      (merge split { percentage: new-percentage })
+    )
+    (ok true)
+  )
+)
+
+;; Remove beneficiary
+(define-public (remove-beneficiary (work-id uint) (beneficiary principal))
+  (let
+    (
+      (work (unwrap! (map-get? works { work-id: work-id }) ERR-NOT-FOUND))
+      (count (default-to u0 (get count (map-get? work-splits-count { work-id: work-id }))))
+    )
+    (asserts! (is-eq tx-sender (get creator work)) ERR-NOT-AUTHORIZED)
+    (map-delete royalty-splits { work-id: work-id, beneficiary: beneficiary })
+    (map-set work-splits-count
+      { work-id: work-id }
+      { count: (if (> count u0) (- count u1) u0) }
+    )
+    (ok true)
+  )
+)
+
+;; Get beneficiary count for work
+(define-read-only (get-beneficiary-count (work-id uint))
+  (default-to u0 (get count (map-get? work-splits-count { work-id: work-id })))
+)
+
+;; Calculate unclaimed earnings
+(define-read-only (get-unclaimed-earnings (work-id uint) (beneficiary principal))
+  (match (map-get? royalty-splits { work-id: work-id, beneficiary: beneficiary })
+    split
+      (match (map-get? works { work-id: work-id })
+        work
+          (let
+            (
+              (earnings (/ (* (get total-revenue work) (get percentage split)) u100))
+              (unclaimed (- earnings (get earned split)))
+            )
+            (ok unclaimed)
+          )
+        (err ERR-NOT-FOUND)
+      )
+    (err ERR-NOT-FOUND)
+  )
+)
+
+;; Get total splits percentage for work
+(define-read-only (get-total-split-percentage (work-id uint))
+  (ok u0) ;; Simplified for now - would need iteration in full implementation
+)
